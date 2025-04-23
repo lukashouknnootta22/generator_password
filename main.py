@@ -72,10 +72,10 @@ def save_to_db(password: str, hashed_password: str = None, service_name: str = N
 	"""
 	try:
 		db_pass = Password(password=password, hashed_password=hashed_password, service_name=service_name)
-		Session = next(get_session())
-		Session.add(db_pass)
+		session = next(get_session())
+		session.add(db_pass)
 	except SQLAlchemyError as e:
-		logger.error(f'Error with save_to_db: {e.text}')
+		logging.error(f'Error with save_to_db: {e.text}')
 
 if __name__ == '__main__':
 
