@@ -1,37 +1,61 @@
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import create_engine
-import os
-from dotenv import load_dotenv
+from sqlalchemy.orm import Session
+from contextlib import contextmanager
+from decouple import config
+import logging
 
-# Загрузка глобальных переменных
-load_dotenv()
-DB_TYPE = os.getenv('DB_TYPE')
-DB_NAME= os.getenv('DB_NAME')
-DB_USER= os.getenv('DB_USER')
-DB_PASSWORD= os.getenv('DB_PASSWORD')
-DB_HOST= os.getenv('DB_HOST')
+# Настройка логирования.
+logging.basicConfig(
+		level=logging.INFO,
+		format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+	)
+
+logger = logging.getLogger(__name__)
 
 def create_engine_url() -> str:
 	"""
-	Создание URL-аддреса для sqlalchemy
-	:return: URL-аддрес sqlalchemy 
+	Создание URL-аддреса для engine-sqlalchemy.
+	:return: URL-аддрес sqlalchemy.
 	"""
 	try:
-		if DB_TYPE == 'mysql':
-			engine_url = f'mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}'
-		elif DB_TYPE == 'postgresql':
-			engine_url = f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}'
+		db_type = config('DB_TYPE')
+		if db_type == 'mysql':
+			engine_url = f'mysql+mysqlconnector://{config("DB_USER")}:{config("DB_PASSWORD")}@{config("DB_HOST")}/{config("DB_NAME")}'
+		elif db_type == 'postgresql':
+			engine_url = f'postgresql+psycopg2://{config("DB_USER")}:{config("DB_PASSWORD")}@{config("DB_HOST")}/{config("DB_NAME")}'
 		else:
 			raise ValueError('Непподерживаемый тип базы данных')
-	except ValueError as e:
-		print(f'Error: {e.text}')
-	else:
+		logger.info(f'Успешное подключение к базе данных - {db_type}')
 		return engine_url
+	except ValueError as e:
+		logger.error(f'Ошибка: {e}')
 
+@contextmanager
+def get_session(sessionmake) -> Session:
+	"""
+	Получение сессии с базой данных.
+	:param sessionmake: Класс для создания сессии с БД.
+	:return: Сессия БД.
+	"""
+	session = sessionmake()
+	try:
+		yield session
+	except Exception as e:
+		logger.error(f'Ошибка при получении сессии с БД: {e}')
+		session.rollback()
+	else:
+		session.commit()
+	finally:
+		session.close()
 
 # Создание движка и сессии SQLAlchemy
 engine = create_engine(create_engine_url())
 
-local_session = sessionmaker(autoflush=False, autocommit=False, bind=engine)
+sessionmake = sessionmaker(autoflush=False, autocommit=False, bind=engine)
 
 Base = declarative_base()
+
+if __name__ == '__main__':
+	with get_session(sessionmake=sessionmake) as session:
+		logger.info('База данных работает')
