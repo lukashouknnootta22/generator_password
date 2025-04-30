@@ -1,84 +1,83 @@
 from bcrypt import hashpw, gensalt
 from random import choices
-from database import Base, local_session, engine
-from sqlalchemy.orm import Session
+from database import Base, get_session, engine, sessionmake
 from models import Password
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 
-# Логирование
-logging.basicConfig(level=logging.INFO, filename="py_log.log",filemode="w",
-                    format="%(asctime)s %(levelname)s %(message)s")
+# Настройка логирования.
+logging.basicConfig(
+		level=logging.INFO,
+		format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+	)
 
+logger = logging.getLogger(__name__)
+
+# Создание БД.
 Base.metadata.create_all(bind=engine)
 
-def get_session() -> Session:
-	"""
-	Получение сессии с базой данных
-	:return: Сессия БД
-	"""
-	session = local_session()
-	try:
-		yield session
-	except Exception as e:
-		logging.error(f'Error with DB: {e.text}')
-		session.rollback()
-	else:
-		session.commit()
-	finally:
-		session.close()
+class Generator:
+	# Объявление констант.
+	SPECIAL_CHARACTERS = '+-/*!&$#?=@<>'
+	LETTERS = 'abcdefghijklnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+	NUMBERS = '1234567890'
 
-SPECIAL_CHARACTERS = '+-/*!&$#?=@<>'
-LETTERS = 'abcdefghijklnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-NUMBERS = '1234567890'
+	def __init__(self, symbols: str):
+		"""
+		Инициализация класса.
+		:param symbols: Строка символов для генерации.
+		"""
+		self.symbols = symbols
 
-def gen_pw(length_password: int, symbols: str) -> str:
-	"""
-	Генерация пароля с выбранными символами
-	:param length_password: Длина пароля
-	:param symbols: Строка символов для генерации
-	:return: Сгенерированный пароль
-	"""
-	return ''.join(choices(symbols, k=length_password))
+	def gen_pw(self, length_password: int) -> str:
+		"""
+		Генерация пароля с выбранными символами.
+		:param length_password: Длина пароля.
+		:return: Сгенерированный пароль.
+		"""
+		return ''.join(choices(self.symbols, k=length_password))
 
-def gen_hash_pw(password: str) -> str:
-	"""
-	Хэширование сгенерированного пароля
-	:param password: Оригинальный пароль
-	:return: Хешированный пароль
-	"""
-	return hashpw(password.encode('utf-8'), gensalt(rounds=14)).decode('utf-8')
+	@staticmethod
+	def gen_hash_pw(password: str) -> str:
+		"""
+		Хэширование сгенерированного пароля.
+		:param password: Оригинальный пароль.
+		:return: Хешированный пароль.
+		"""
+		return hashpw(password.encode('utf-8'), gensalt(rounds=14)).decode('utf-8')
 
-def save_to_file(password: str, hashed_password: str = None, service_name: str = None):
+	@staticmethod	
+	def save_to_file(password: str, hashed_password: str = None, service_name: str = None):
 	"""
-	Cохранение пароля в текстовый файл
-	:param password: Оригинальный пароль
-	:param hashed_password: Хэшированный пароль (опционально)
-	:param service_name: Имя сервиса
+	Cохранение пароля в текстовый файл.
+	:param password: Оригинальный пароль.
+	:param hashed_password: Хэшированный пароль (опционально).
+	:param service_name: Имя сервиса (опционально).
 	"""
-	with open('Your_password', mode='a') as file:
+	with open('passwords', mode='a') as file:
 		file.write(f'Пароль: {password}')
 		if hashed_password is not None:
 			file.write(f'\nХэшированный пароль: {hashed_password}')
 		if service_name is not None:
 			file.write(f'\nИмя сервиса: {service_name}\n')
 
-def save_to_db(password: str, hashed_password: str = None, service_name: str = None):
-	"""
-	Сохранение пароля в Базу Данных
-	:param password: Оригинальный пароль
-	:param hashed_password: Хэшированный пароль (опционально)
-	:param service_name: Имя сервиса (опционально)
-	"""
-	try:
-		db_pass = Password(password=password, hashed_password=hashed_password, service_name=service_name)
-		session = next(get_session())
-		session.add(db_pass)
-	except SQLAlchemyError as e:
-		logging.error(f'Error with save_to_db: {e.text}')
+	@staticmethod
+	def save_to_db(password: str, hashed_password: str = None, service_name: str = None):
+		"""
+		Сохранение пароля в Базу Данных.
+		:param password: Оригинальный пароль.
+		:param hashed_password: Хэшированный пароль (опционально).
+		:param service_name: Имя сервиса (опционально).
+		"""
+		try:
+			with get_session(sessionmake) as session:
+				db_pass = Password(password=password, hashed_password=hashed_password, service_name=service_name)
+				session.add(db_pass)
+				logger.info(f'Пароль успешно сохранён в БД')
+		except SQLAlchemyError as e:
+			logging.error(f'Ошибка с сохранением пароля в БД: {e}')
 
 if __name__ == '__main__':
-
 	pos_answer = ('y', 'yes')
 
 	while True:
@@ -97,11 +96,11 @@ if __name__ == '__main__':
 			is_numbers = input('Цифры: ')
 
 			if is_special.lower() in pos_answer:
-				symbols += SPECIAL_CHARACTERS
+				symbols += Generator.SPECIAL_CHARACTERS
 			if is_letters.lower() in pos_answer:
-				symbols += LETTERS
+				symbols += Generator.LETTERS
 			if is_numbers.lower() in pos_answer:
-				symbols += NUMBERS
+				symbols += Generator.NUMBERS
 			else:
 				raise ValueError('Пароль должен содержать одну из предложенных групп символов')
 
@@ -118,27 +117,29 @@ if __name__ == '__main__':
 			# Запрос на сохранение в базе данных.
 			is_save_db = input('Сохранить пароль в базу данных? (y/n) ')
 
+			generator = Generator(symbols=symbols)
+
 		except ValueError as e:
-			print(f"Error: {e.text}")
+			print(f"Ошибка: {e}")
 			continue
 
 		else:
 			# Генерация пароля с выбранными значениями
-			password = gen_pw(length_password, symbols)
+			password = generator.gen_pw(length_password=length_password)
 
 			# Получить хэш, если он был выбран
 			if is_hash_pw.lower() in pos_answer:
-				hashed_password = gen_hash_pw(password)
+				hashed_password = generator.gen_hash_pw(password=password)
 
 			# Вывод результатов
 			print(f'\nПароль: {password}\nХэшированный пароль: {hashed_password}')
 			
 			# Сохранить в базе данных и/или в файле, если один из вариантов был выбран
 			if is_save_file.lower() in pos_answer:
-				save_to_file(password, hashed_password, service_name)
+				generator.save_to_file(password, hashed_password, service_name)
 				print("Успешное сохранение в файл")
 			if is_save_db.lower() in pos_answer:
-				save_to_db(password, hashed_password, service_name)
+				generator.save_to_db(password, hashed_password, service_name)
 				print("Данные успешно записаны в БД")
 
 			# Запрос на продолжение
